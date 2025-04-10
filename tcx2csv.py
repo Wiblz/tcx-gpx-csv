@@ -3,9 +3,9 @@ from __future__ import annotations
 import argparse
 import re
 import xml.etree.ElementTree as et
-from typing import Final
+from typing import Final, Union
 
-AttributeNestingLevel = dict[str, str | AttributeNestingLevel]
+AttributeNestingLevel = dict[str, Union[str, "AttributeNestingLevel"]]
 attributes: Final[AttributeNestingLevel] = {
     'Time': 'Time',
     'Position': {
@@ -39,12 +39,12 @@ def main(input_file: str, output_file: str):
             return
 
         activities = root.find(namespace + 'Activities')
-        if not activities:
+        if activities is None or len(activities) == 0:
             print('Unable to find Activities under root')
             return
 
         activity = activities.find(namespace + 'Activity')
-        if not activity:
+        if activity is None or len(activity) == 0:
             print('Unable to find Activity under Activities')
             return
 

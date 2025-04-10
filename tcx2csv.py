@@ -68,21 +68,20 @@ def main(input_file: str, output_file: str):
                 for track in lap.iter(namespace + 'Track'):
                     fout.write('New Track\n')
                     for trackpoint in track.iter(namespace + 'Trackpoint'):
-                        data = extract_trackpoint_data(trackpoint, namespace)
+                        data = extract_trackpoint_data(trackpoint)
                         fout.write(','.join(data) + '\n')
 
     except Exception as e:
         print(f"Error processing file: {e}")
 
 
-def extract_trackpoint_data(trackpoint: et.Element | None, namespace: str,
+def extract_trackpoint_data(trackpoint: et.Element | None,
                             attrs: AttributeNestingLevel | None = None) -> list[str]:
     """
     Extract data fields from a trackpoint element based on configurable attributes.
 
     Args:
         trackpoint: XML trackpoint element
-        namespace: XML namespace
         attrs: Optional dictionary of attributes to extract (uses global attributes if None)
 
     Returns:
@@ -90,6 +89,8 @@ def extract_trackpoint_data(trackpoint: et.Element | None, namespace: str,
     """
     if attrs is None:
         attrs = attributes
+
+    namespace = "{*}" # Ignore namespaces
 
     # Recursive function to extract nested attributes
     def extract_attribute(element: et.Element | None, attr_dict: AttributeNestingLevel) -> list[str]:

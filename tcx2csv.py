@@ -1,74 +1,129 @@
+from __future__ import annotations
+
 import argparse
 import re
 import xml.etree.ElementTree as et
+from typing import Final
+
+AttributeNestingLevel = dict[str, str | AttributeNestingLevel]
+attributes: Final[AttributeNestingLevel] = {
+    'Time': 'Time',
+    'Position': {
+        'LatitudeDegrees': 'LatitudeDegrees',
+        'LongitudeDegrees': 'LongitudeDegrees'
+    },
+    'AltitudeMeters': 'AltitudeMeters',
+    'HeartRateBpm': {
+        'Value': 'HRBpm'
+    },
+    'Cadence': 'Cadence',
+    'Extensions': {
+        'TPX': {
+            'Speed': 'Speed',
+            'Watts': 'Watts',
+            'Grade': 'Grade'
+        }
+    }
+}
 
 
-# takes in a TCX file and outputs a CSV file
-def main(input, output):
-    tree = et.parse(input)
-    root = tree.getroot()
-    m = re.match(r'^({.*})', root.tag)
-    if m:
-        ns = m.group(1)
-    else:
-        ns = ''
-    if root.tag != ns + 'TrainingCenterDatabase':
-        print('Unknown root found: ' + root.tag)
-        return
-    activities = root.find(ns + 'Activities')
-    if not activities:
-        print('Unable to find Activities under root')
-        return
-    activity = activities.find(ns + 'Activity')
-    if not activity:
-        print('Unable to find Activity under Activities')
-        return
-    columnsEstablished = False
-    for lap in activity.iter(ns + 'Lap'):
-        if columnsEstablished:
-            fout.write('New Lap\n')
-        for track in lap.iter(ns + 'Track'):
-            # pdb.set_trace()
-            if columnsEstablished:
-                fout.write('New Track\n')
-            for trackpoint in track.iter(ns + 'Trackpoint'):
-                try:
-                    time = trackpoint.find(ns + 'Time').text.strip()
-                except:
-                    time = ''
-                try:
-                    latitude = trackpoint.find(ns + 'Position').find(ns + 'LatitudeDegrees').text.strip()
-                except:
-                    latitude = ''
-                try:
-                    longitude = trackpoint.find(ns + 'Position').find(ns + 'LongitudeDegrees').text.strip()
-                except:
-                    longitude = ''
-                try:
-                    altitude = trackpoint.find(ns + 'AltitudeMeters').text.strip()
-                except:
-                    altitude = ''
-                try:
-                    bpm = trackpoint.find(ns + 'HeartRateBpm').find(ns + 'Value').text.strip()
-                except:
-                    bpm = ''
-                if not columnsEstablished:
-                    fout = open(output, 'w')
-                    fout.write(','.join(
-                        ('Time', 'LatitudeDegrees', 'LongitudeDegrees', 'AltitudeMeters', 'heartratebpm/value')) + '\n')
-                    columnsEstablished = True
-                fout.write(','.join((time, latitude, longitude, altitude, bpm)) + '\n')
+def main(input_file: str, output_file: str):
+    try:
+        tree = et.parse(input_file)
+        root = tree.getroot()
+        m = re.match(r'^({.*})', root.tag)
+        namespace = m.group(1) if m else ''
 
-    fout.close()
+        if root.tag != namespace + 'TrainingCenterDatabase':
+            print('Unknown root found: ' + root.tag)
+            return
+
+        activities = root.find(namespace + 'Activities')
+        if not activities:
+            print('Unable to find Activities under root')
+            return
+
+        activity = activities.find(namespace + 'Activity')
+        if not activity:
+            print('Unable to find Activity under Activities')
+            return
+
+        headers: list[str] = []
+
+        def extract_headers(attr_dict: AttributeNestingLevel) -> None:
+            for key, value in attr_dict.items():
+                if isinstance(value, dict):
+                    extract_headers(value)
+                else:
+                    headers.append(value)
+
+        extract_headers(attributes)
+
+        with open(output_file, 'w') as fout:
+            # Write header
+            fout.write(','.join(headers) + '\n')
+
+            for lap in activity.iter(namespace + 'Lap'):
+                fout.write('New Lap\n')
+                for track in lap.iter(namespace + 'Track'):
+                    fout.write('New Track\n')
+                    for trackpoint in track.iter(namespace + 'Trackpoint'):
+                        data = extract_trackpoint_data(trackpoint, namespace)
+                        fout.write(','.join(data) + '\n')
+
+    except Exception as e:
+        print(f"Error processing file: {e}")
+
+
+def extract_trackpoint_data(trackpoint: et.Element | None, namespace: str,
+                            attrs: AttributeNestingLevel | None = None) -> list[str]:
+    """
+    Extract data fields from a trackpoint element based on configurable attributes.
+
+    Args:
+        trackpoint: XML trackpoint element
+        namespace: XML namespace
+        attrs: Optional dictionary of attributes to extract (uses global attributes if None)
+
+    Returns:
+        List of extracted values in the order they appear in the attributes dictionary
+    """
+    if attrs is None:
+        attrs = attributes
+
+    # Recursive function to extract nested attributes
+    def extract_attribute(element: et.Element | None, attr_dict: AttributeNestingLevel) -> list[str]:
+        results: list[str] = []
+
+        for key, value in attr_dict.items():
+            if isinstance(value, dict):
+                # Handle nested attributes
+                child = element.find(namespace + key) if element is not None else None
+                results.extend(extract_attribute(child, value))
+            else:
+                # Extract leaf attribute
+                results.append(get_element_text(element, namespace + key))
+
+        return results
+
+    extracted_values = extract_attribute(trackpoint, attrs)
+
+    # The main function should be updated to use these headers for the CSV header row
+    return extracted_values
+
+
+def get_element_text(element: et.Element | None, tag: str) -> str:
+    """Safely extract text from an XML element."""
+    if element is None:
+        return ''
+    child = element.find(tag)
+    return child.text.strip() if child is not None and child.text else ''
 
 
 if __name__ == '__main__':
-    # arguments
-    parser = argparse.ArgumentParser(description=
-                                     'something.')
+    parser = argparse.ArgumentParser(description='Convert TCX files to CSV format.')
     parser.add_argument('input', help='input TCX file')
     parser.add_argument('output', help='output CSV file')
-    # parser.add_argument('--verbose', help='increase output verbosity', action='store_true')
     args = parser.parse_args()
 
     main(args.input, args.output)
